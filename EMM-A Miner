@@ -52,7 +52,7 @@ bool dockUseMergerAssist = true;
 string dockBroadcastTag = "EMM_A_DOCK_POSE";
 double dockPoseDistance = 50.0;
 double dockApproachSpeed = 4.0;
-double dockFinalSpeed = 5.0;
+double dockFinalSpeed = 10.0;
 double dockPoseGateDistance = 50.0;
 double dockPoseTolerance = 0.6;
 double dockPoseFreshSeconds = 5.0;
@@ -2479,7 +2479,7 @@ class ThrusterControl
 
     // Like ControlPosition but caps vertical speed (along verticalAxis) to 30% of maxSpeed,
     // letting lateral and forward/backward movement use the full budget.
-    public Vector3D ControlPositionPrioritized(Vector3D targetPosition, Vector3D targetVelocity, double maxSpeed, Vector3D verticalAxis, double verticalFraction = 0.3)
+    public Vector3D ControlPositionPrioritized(Vector3D targetPosition, Vector3D targetVelocity, double maxSpeed, Vector3D verticalAxis, double verticalFraction = 0.2)
     {
         Vector3D rawVel = targetVelocity + VectorClamp(-pid.Control(rc.GetPosition() - targetPosition), maxSpeed);
 
