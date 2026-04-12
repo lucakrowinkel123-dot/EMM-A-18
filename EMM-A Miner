@@ -52,7 +52,7 @@ bool dockUseMergerAssist = true;
 string dockBroadcastTag = "EMM_A_DOCK_POSE";
 double dockPoseDistance = 50.0;
 double dockApproachSpeed = 4.0;
-double dockFinalSpeed = 1.0;
+double dockFinalSpeed = 5.0;
 double dockPoseGateDistance = 50.0;
 double dockPoseTolerance = 0.6;
 double dockPoseFreshSeconds = 5.0;
@@ -310,7 +310,17 @@ void Move ()
 
     double maxSpeedNow = activeMaxSpeed > 0 ? activeMaxSpeed : maxSpeed;
     Vector3D rcTarget = targetPosition - worldOffset;
-    thrust.ApplyAccel(thrust.ControlPosition(rcTarget, Vector3D.Zero, maxSpeedNow));
+    if (dockingState != DockingState.None)
+    {
+        // During docking/undocking: prioritize lateral and forward/backward over vertical.
+        // Use desiredUp as the vertical axis; fall back to RC's current up if unset.
+        Vector3D vertAxis = desiredUp.LengthSquared() > 0.001 ? Vector3D.Normalize(desiredUp) : rc.WorldMatrix.Up;
+        thrust.ApplyAccel(thrust.ControlPositionPrioritized(rcTarget, Vector3D.Zero, maxSpeedNow, vertAxis));
+    }
+    else
+    {
+        thrust.ApplyAccel(thrust.ControlPosition(rcTarget, Vector3D.Zero, maxSpeedNow));
+    }
 }
 
 Vector3D GetTargetOffsetWorld()
@@ -2465,6 +2475,22 @@ class ThrusterControl
     public Vector3D ControlPosition (Vector3D targetPosition, Vector3D targetVelocity, double maxSpeed = double.PositiveInfinity)
     {
         return ControlVelocity(targetVelocity + VectorClamp(-pid.Control(rc.GetPosition() - targetPosition), maxSpeed));
+    }
+
+    // Like ControlPosition but caps vertical speed (along verticalAxis) to 30% of maxSpeed,
+    // letting lateral and forward/backward movement use the full budget.
+    public Vector3D ControlPositionPrioritized(Vector3D targetPosition, Vector3D targetVelocity, double maxSpeed, Vector3D verticalAxis, double verticalFraction = 0.3)
+    {
+        Vector3D rawVel = targetVelocity + VectorClamp(-pid.Control(rc.GetPosition() - targetPosition), maxSpeed);
+
+        double vertComp = Vector3D.Dot(rawVel, verticalAxis);
+        Vector3D horizVel = rawVel - vertComp * verticalAxis;
+
+        horizVel = VectorClamp(horizVel, maxSpeed);
+        double vertCap = maxSpeed * verticalFraction;
+        vertComp = MathHelper.Clamp(vertComp, -vertCap, vertCap);
+
+        return ControlVelocity(horizVel + vertComp * verticalAxis);
     }
 
     public Vector3D VectorClamp (Vector3D v, double max)
