@@ -29,7 +29,8 @@
 // ========== Editable Script Settings ==========
 string cockpitName = "Cockpit";
 double maxSpeed = 25;
-double arrivalTolerance = 0.25;
+double arrivalTolerance = 2.5;
+double miningArrivalTolerance = 0.25;
 double orientationToleranceDeg = 1.0;
 UpdateFrequency tickSpeed = UpdateFrequency.Update1;
 double autoDepthNoGainMeters = 5.0;
@@ -54,9 +55,9 @@ double dockPoseDistance = 50.0;
 double dockApproachSpeed = 15.0;
 double dockFinalSpeed = 15.0;
 double dockPoseGateDistance = 50.0;
-double dockPoseTolerance = 0.6;
+double dockPoseTolerance = 0.5;
 double dockPoseFreshSeconds = 5.0;
-double dockConnectDistance = 0.35;
+double dockConnectDistance = 0.25;
 double dockConnectAlignToleranceDeg = 0.5;
 double carrierPoseForwardOffset = -1.25; // broadcaster sends connector position shifted forward by this amount
 // =============================================
@@ -262,7 +263,8 @@ void WriteEcho()
     sb.AppendLine("Command example:");
     sb.AppendLine("Nav;GPS:Site:66288.47:-8270.96:-94039.68:|-0.4942,-0.5045,0.7079,0.5018,0.4994,0.7063");
     sb.AppendLine("dumpgps");
-    sb.AppendLine($"Arrival tolerance: {arrivalTolerance:0.00} m");
+    sb.AppendLine($"Path tolerance: {arrivalTolerance:0.00} m");
+    sb.AppendLine($"Mining tolerance: {miningArrivalTolerance:0.00} m");
     sb.AppendLine($"Orientation tolerance: {orientationToleranceDeg:0.00} deg");
     sb.AppendLine($"Mining: {miningState}");
     sb.AppendLine($"SPEEDF: {SPEEDF:0.00} m/s");
@@ -290,7 +292,7 @@ void Move ()
     Vector3D worldOffset = GetActiveTargetOffsetWorld();
     Vector3D position = rc.GetPosition() + worldOffset;
     Vector3D toTarget = targetPosition - position;
-    double tolerance = Math.Max(0.05, arrivalTolerance);
+    double tolerance = GetActiveArrivalTolerance();
 
     Vector3D forward = desiredForward;
     if (forward == Vector3D.Zero && toTarget.LengthSquared() > 0.001)
@@ -361,6 +363,17 @@ bool IsOrientationAligned(Vector3D forward, Vector3D up, double toleranceDeg)
     if (up.LengthSquared() > 0.001 && Vector3D.Dot(wm.Up, Vector3D.Normalize(up)) < minDot)
         return false;
     return true;
+}
+
+double GetActiveArrivalTolerance()
+{
+    if (dockingState == DockingState.DockingFinalApproach)
+        return Math.Max(0.05, dockConnectDistance);
+    if (dockingState != DockingState.None)
+        return Math.Max(0.05, dockPoseTolerance);
+    if (miningEnabled)
+        return Math.Max(0.05, miningArrivalTolerance);
+    return Math.Max(0.05, arrivalTolerance);
 }
 
 bool TrySetPositiveDouble(string cmd, int skip, ref double field, string label, string unit = "m/s", double minVal = 0, string fmt = "0.00")
@@ -1567,7 +1580,7 @@ void UpdateMiningState()
             targetPosition = laneAnchor;
             desiredForward = drillAxis;
             activeMaxSpeed = SPEEDB;
-            if (IsAtTargetPose(targetPosition, desiredForward, desiredUp))
+            if (IsAtTargetPose(targetPosition, desiredForward, desiredUp, miningArrivalTolerance))
             {
                 SetDrills(true);
                 ResetStuckMonitor();
@@ -1593,7 +1606,7 @@ void UpdateMiningState()
             targetPosition = laneAnchor;
             desiredForward = drillAxis;
             activeMaxSpeed = SPEEDB;
-            if (IsAtTargetPosition(targetPosition))
+            if (IsAtTargetPosition(targetPosition, miningArrivalTolerance))
             {
                 if (!retryCurrentLane)
                     SetDrills(false);
@@ -1695,7 +1708,7 @@ bool ShouldFinishDrillForward()
 {
     double depthProgress = GetLaneProgressDepth();
     if (depthMode == DepthMode.Default)
-        return depthProgress >= laneDepth || IsAtTargetPosition(targetPosition);
+        return depthProgress >= laneDepth || IsAtTargetPosition(targetPosition, miningArrivalTolerance);
 
     bool includeStone = depthMode == DepthMode.OrePlusStone;
     if (oreCheckTick <= 0)
@@ -1814,15 +1827,16 @@ void NextHole()
     Echo($"Next hole {areaLaneIndex + 1}/{areaLaneAnchors.Count}");
 }
 
-bool IsAtTargetPosition(Vector3D target)
+bool IsAtTargetPosition(Vector3D target, double toleranceMeters = -1)
 {
-    double tolerance = Math.Max(0.05, arrivalTolerance);
+    double baseTolerance = toleranceMeters > 0 ? toleranceMeters : arrivalTolerance;
+    double tolerance = Math.Max(0.05, baseTolerance);
     return Vector3D.DistanceSquared(rc.GetPosition() + GetActiveTargetOffsetWorld(), target) < tolerance * tolerance;
 }
 
-bool IsAtTargetPose(Vector3D target, Vector3D forward, Vector3D up)
+bool IsAtTargetPose(Vector3D target, Vector3D forward, Vector3D up, double toleranceMeters = -1)
 {
-    return IsAtTargetPosition(target) && IsOrientationAligned(forward, up, orientationToleranceDeg);
+    return IsAtTargetPosition(target, toleranceMeters) && IsOrientationAligned(forward, up, orientationToleranceDeg);
 }
 
 void SetDrills(bool enabled)
