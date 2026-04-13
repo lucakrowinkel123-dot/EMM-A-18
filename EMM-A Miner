@@ -143,6 +143,11 @@ IMyRemoteControl carrierRemote;
 IMyShipMergeBlock minerMerger;
 IMyShipMergeBlock carrierMerger;
 IMyBroadcastListener dockListener;
+List<IMyGyro> allGyros = new List<IMyGyro>();
+List<IMyThrust> allThrusters = new List<IMyThrust>();
+List<IMyRadioAntenna> antennas = new List<IMyRadioAntenna>();
+List<IMyBatteryBlock> batteries = new List<IMyBatteryBlock>();
+List<IMyGasTank> hydrogenTanks = new List<IMyGasTank>();
 Vector3D carrierConnectorPos = Vector3D.Zero;
 Vector3D carrierConnectorForward = Vector3D.Zero;
 Vector3D carrierConnectorUp = Vector3D.Zero;
@@ -179,9 +184,14 @@ public Program ()
     if (rc == null) // No cockpits found.
         throw new Exception("No cockpit/remote control found. Set the cockpitName field at the top of the script.");
 
-    thrust = new ThrusterControl(rc, tickSpeed, GetBlocks<IMyThrust>());
-    gyros = new GyroControl(rc, tickSpeed, GetBlocks<IMyGyro>());
+    allGyros = GetBlocks<IMyGyro>();
+    allThrusters = GetBlocks<IMyThrust>();
+    thrust = new ThrusterControl(rc, tickSpeed, allThrusters);
+    gyros = new GyroControl(rc, tickSpeed, allGyros);
     drills = GetBlocks<IMyShipDrill>();
+    antennas = GetBlocks<IMyRadioAntenna>();
+    batteries = GetBlocks<IMyBatteryBlock>();
+    hydrogenTanks = GetBlocks<IMyGasTank>();
     minerConnector = GetBlock<IMyShipConnector>(minerConnectorName, true) ?? GetBlock<IMyShipConnector>();
     carrierConnector = GetBlock<IMyShipConnector>(carrierConnectorName, true);
     carrierRemote = GetBlock<IMyRemoteControl>(carrierRemoteName, true);
@@ -1045,6 +1055,7 @@ void StartUndock()
     UpdateConnectorOffsetLocal();
     minerConnector.Disconnect();
     SetMergerEnabled(false);
+    ApplyUndockedPowerState();
     SetDockingDesiredRcAxes();
     targetPosition = GetDockPosePosition();
     hasTarget = true;
@@ -1146,7 +1157,10 @@ void UpdateDockingState()
 
         bool connectorDocked = minerConnector != null && minerConnector.Status == MyShipConnectorStatus.Connected;
         if (connectorDocked || IsMergerDocked())
+        {
+            ApplyDockedPowerState();
             CompleteDocking("Dock complete (connected).");
+        }
     }
 }
 
@@ -1154,6 +1168,24 @@ bool IsAtDockPose()
 {
     return Vector3D.DistanceSquared(minerConnector.GetPosition(), GetDockPosePosition()) <= dockPoseTolerance * dockPoseTolerance &&
            IsOrientationAligned(desiredForward, desiredUp, orientationToleranceDeg);
+}
+
+void ApplyDockedPowerState()
+{
+    foreach (var g in allGyros) g.Enabled = false;
+    foreach (var t in allThrusters) t.Enabled = false;
+    foreach (var a in antennas) a.Enabled = false;
+    foreach (var b in batteries) b.ChargeMode = ChargeMode.Recharge;
+    foreach (var h in hydrogenTanks) h.Stockpile = true;
+}
+
+void ApplyUndockedPowerState()
+{
+    foreach (var g in allGyros) g.Enabled = true;
+    foreach (var t in allThrusters) t.Enabled = true;
+    foreach (var a in antennas) a.Enabled = true;
+    foreach (var b in batteries) b.ChargeMode = ChargeMode.Auto;
+    foreach (var h in hydrogenTanks) h.Stockpile = false;
 }
 
 void CompleteDocking(string message)
